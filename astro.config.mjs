@@ -4,7 +4,7 @@ import tailwind from "@astrojs/tailwind";
 
 // https://astro.build/config
 export default defineConfig({
-  site: "https://bit-unity15th-multiplaygameprojects.github.io",
+  site: "https://nullma.github.io",
   base: "/_dashboard",
   output: "static",
   trailingSlash: "ignore",

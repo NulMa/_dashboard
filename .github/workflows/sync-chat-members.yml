@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  ORG: Bit-Unity15th-MultiplayGameProjects
+  ORG: NulMa
 
 jobs:
   sync:
@@ -28,7 +28,7 @@ jobs:
 
       - name: Sync members
         env:
-          GH_TOKEN: ${{ secrets.ORG_REPO_PAT_BIT_UNITY_15TH }}
+          GH_TOKEN: ${{ secrets.REPO_PAT }}
           SUPABASE_URL: ${{ vars.CHAT_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.CHAT_SUPABASE_SERVICE_ROLE_KEY }}
           CHAT_OWNER_LOGINS: ${{ vars.CHAT_OWNER_LOGINS }}

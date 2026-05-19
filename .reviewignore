@@ -1,0 +1,5 @@
+# 대시보드 추적 제외 목록
+# Ghost_March 만 추적 대상으로 유지
+
+# NulMa 개인 계정의 기타 repo
+_dashboard

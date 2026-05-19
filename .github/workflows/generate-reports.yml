@@ -27,7 +27,7 @@ permissions:
   contents: read
 
 env:
-  ORG: Bit-Unity15th-MultiplayGameProjects
+  ORG: NulMa
   REPORT_RATE_WINDOW_HOURS: "1"
   REPORT_RATE_MAX: "5"
   REPORT_RATE_COOLDOWN_HOURS: "3"
@@ -51,7 +51,7 @@ jobs:
       - name: List target repos
         id: list
         env:
-          GH_TOKEN: ${{ secrets.ORG_REPO_PAT_BIT_UNITY_15TH }}
+          GH_TOKEN: ${{ secrets.REPO_PAT }}
           TARGET_REPO: ${{ inputs.target_repo }}
         run: |
           set -euo pipefail
@@ -154,7 +154,7 @@ jobs:
       - name: Reconcile report directory
         id: report_dir
         env:
-          GH_TOKEN: ${{ secrets.ORG_REPO_PAT_BIT_UNITY_15TH }}
+          GH_TOKEN: ${{ secrets.REPO_PAT }}
           REPO: ${{ matrix.repo }}
         run: |
           set -euo pipefail
@@ -163,7 +163,7 @@ jobs:
       - name: Check gates
         id: gate
         env:
-          GH_TOKEN: ${{ secrets.ORG_REPO_PAT_BIT_UNITY_15TH }}
+          GH_TOKEN: ${{ secrets.REPO_PAT }}
           FORCE: ${{ inputs.force }}
           REPO: ${{ matrix.repo }}
         run: |
@@ -268,7 +268,7 @@ jobs:
         id: prompt
         if: steps.gate.outputs.should_run == 'true'
         env:
-          GH_TOKEN: ${{ secrets.ORG_REPO_PAT_BIT_UNITY_15TH }}
+          GH_TOKEN: ${{ secrets.REPO_PAT }}
           FROM_SHA: ${{ steps.gate.outputs.last_sha }}
           TO_SHA:   ${{ steps.gate.outputs.current_sha }}
           REPO:     ${{ matrix.repo }}
@@ -447,7 +447,7 @@ jobs:
       - name: Update meta.json
         if: steps.run.outputs.status == 'success'
         env:
-          GH_TOKEN:    ${{ secrets.ORG_REPO_PAT_BIT_UNITY_15TH }}
+          GH_TOKEN:    ${{ secrets.REPO_PAT }}
           REPO:        ${{ matrix.repo }}
           CURRENT_SHA: ${{ steps.gate.outputs.current_sha }}
           OUT_FILE:    ${{ steps.run.outputs.out_file }}
