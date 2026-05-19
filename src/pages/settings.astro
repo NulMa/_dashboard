@@ -10,277 +10,384 @@ const base = BASE.endsWith("/") ? BASE.slice(0, -1) : BASE;
 
 const DASHBOARD_REPO = "NulMa/_dashboard";
 const initialProjects = projectsData as { name: string; enabled: boolean }[];
+
+const CLAUDE_MODELS = [
+  { value: "claude-sonnet-4-6", label: "Sonnet 4.6 (기본)" },
+  { value: "claude-opus-4-7",   label: "Opus 4.7 (고성능)" },
+  { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5 (빠름)" },
+];
+const CODEX_MODELS = [
+  { value: "gpt-5.5", label: "GPT-5.5 (기본)" },
+  { value: "o3",      label: "o3" },
+  { value: "gpt-4o",  label: "GPT-4o" },
+];
 ---
 
 <Layout title="Settings · Dashboard">
   <Header>
-    <div
-      slot="left"
-      style="display:flex;align-items:center;gap:10px;font-family:var(--sans);min-width:0;"
-    >
+    <div slot="left" style="display:flex;align-items:center;gap:10px;font-family:var(--sans);min-width:0;">
       <Logo />
-      <a
-        href={`${base}/`}
-        style="font-family:var(--mono);font-size:13px;font-weight:600;letter-spacing:-0.01em;color:var(--fg-2);text-decoration:none;white-space:nowrap;"
-      >NulMa</a>
+      <a href={`${base}/`} style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--fg-2);text-decoration:none;">NulMa</a>
       <span style="color:var(--fg-3);font-size:13px;">/</span>
-      <span style="font-size:13px;color:var(--fg-1);white-space:nowrap;">settings</span>
+      <span style="font-size:13px;color:var(--fg-1);">settings</span>
     </div>
   </Header>
 
-  <section style="padding:32px 24px 48px;max-width:680px;margin:0 auto;">
-    <h1 style="font-size:20px;font-weight:600;margin:0 0 6px;letter-spacing:-0.02em;color:var(--fg-1);">
-      Settings
-    </h1>
-    <p style="margin:0 0 32px;color:var(--fg-2);font-size:13px;">
-      리포트를 생성할 프로젝트를 관리합니다.
-    </p>
+  <section style="padding:32px 24px 48px;max-width:680px;margin:0 auto;display:flex;flex-direction:column;gap:24px;">
+    <div>
+      <h1 style="font-size:20px;font-weight:600;margin:0 0 4px;letter-spacing:-0.02em;color:var(--fg-1);">Settings</h1>
+      <p style="margin:0;color:var(--fg-2);font-size:13px;">리포트 생성 설정 및 프로젝트 관리</p>
+    </div>
 
-    <!-- PAT 설정 -->
-    <div style="margin-bottom:28px;padding:16px;border:1px solid var(--border);border-radius:6px;background:var(--bg-1);">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-        <span style="font-size:12px;font-weight:600;letter-spacing:0.04em;color:var(--fg-2);font-family:var(--mono);">
-          GITHUB TOKEN
-        </span>
-        <span id="pat-status" style="font-size:11px;font-family:var(--mono);color:var(--fg-3);">
-          미설정
-        </span>
+    <!-- ── GitHub Token ────────────────────────────────────────── -->
+    <div class="card">
+      <div class="card-header">
+        <span class="section-label">GITHUB TOKEN</span>
+        <span id="pat-status" class="status-badge">미설정</span>
       </div>
       <div style="display:flex;gap:8px;">
-        <input
-          id="pat-input"
-          type="password"
-          placeholder="github_pat_… 또는 ghp_…"
-          style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg-1);font-family:var(--mono);font-size:12px;outline:none;"
-        />
-        <button
-          id="pat-save"
-          type="button"
-          style="padding:7px 14px;border:1px solid var(--border);border-radius:4px;background:var(--bg-2);color:var(--fg-1);font-size:12px;cursor:pointer;white-space:nowrap;"
-        >저장</button>
-        <button
-          id="pat-clear"
-          type="button"
-          style="padding:7px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg-3);font-size:12px;cursor:pointer;"
-        >삭제</button>
+        <input id="pat-input" type="password" placeholder="github_pat_… 또는 ghp_…"
+          style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg-1);font-family:var(--mono);font-size:12px;outline:none;" />
+        <button id="pat-save" class="btn-secondary">저장</button>
+        <button id="pat-clear" class="btn-ghost">삭제</button>
       </div>
-      <p style="margin:8px 0 0;font-size:11px;color:var(--fg-3);font-family:var(--mono);">
-        Contents: Read &amp; Write 권한의 fine-grained PAT 필요. localStorage에만 저장됩니다.
+      <p style="margin:6px 0 0;font-size:11px;color:var(--fg-3);font-family:var(--mono);">
+        Contents: Read &amp; Write + Actions: Write 권한의 PAT 필요. localStorage에만 저장됩니다.
       </p>
     </div>
 
-    <!-- 프로젝트 목록 -->
-    <div style="margin-bottom:24px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-        <span style="font-size:12px;font-weight:600;letter-spacing:0.04em;color:var(--fg-2);font-family:var(--mono);">
-          PROJECTS
-        </span>
+    <!-- ── 연동 상태 ─────────────────────────────────────────────── -->
+    <div class="card">
+      <div class="card-header">
+        <span class="section-label">연동 상태</span>
+        <button id="check-connections" class="btn-ghost" style="font-size:11px;">새로고침</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div class="conn-row">
+          <span style="font-family:var(--mono);font-size:12px;color:var(--fg-1);">Claude API</span>
+          <span id="conn-claude" class="conn-badge pending">확인 중…</span>
+        </div>
+        <div class="conn-row">
+          <span style="font-family:var(--mono);font-size:12px;color:var(--fg-1);">Codex (self-hosted runner)</span>
+          <span id="conn-codex" class="conn-badge pending">확인 중…</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 리포트 생성 ────────────────────────────────────────────── -->
+    <div class="card">
+      <div class="card-header">
+        <span class="section-label">리포트 생성</span>
+        <span id="run-status" style="font-size:11px;font-family:var(--mono);color:var(--fg-3);"></span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+        <div>
+          <label style="display:block;font-size:11px;color:var(--fg-3);font-family:var(--mono);margin-bottom:4px;">PROVIDER</label>
+          <select id="sel-provider" class="sel">
+            <option value="claude">claude</option>
+            <option value="codex">codex</option>
+          </select>
+        </div>
+        <div>
+          <label style="display:block;font-size:11px;color:var(--fg-3);font-family:var(--mono);margin-bottom:4px;">MODEL</label>
+          <select id="sel-model" class="sel"></select>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:center;">
+        <select id="sel-repo" class="sel" style="flex:1;">
+          {initialProjects.filter(p => p.enabled).map(p => (
+            <option value={p.name}>{p.name}</option>
+          ))}
+          <option value="">— 전체 (enabled)</option>
+        </select>
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;font-family:var(--mono);color:var(--fg-3);white-space:nowrap;">
+          <input type="checkbox" id="chk-force" style="accent-color:var(--accent);" /> force
+        </label>
+        <button id="run-btn" class="btn-primary">▶ 실행</button>
+      </div>
+    </div>
+
+    <!-- ── 프로젝트 목록 ──────────────────────────────────────────── -->
+    <div class="card">
+      <div class="card-header">
+        <span class="section-label">PROJECTS</span>
         <span id="save-status" style="font-size:11px;font-family:var(--mono);color:var(--fg-3);"></span>
       </div>
 
-      <ul id="project-list" style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;">
+      <ul id="project-list" style="list-style:none;margin:0 0 12px;padding:0;display:flex;flex-direction:column;gap:6px;">
         {initialProjects.map((p) => (
-          <li
-            data-project={p.name}
-            style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1px solid var(--border);border-radius:4px;background:var(--bg-1);"
-          >
+          <li data-project={p.name} class="project-row">
             <span style="font-family:var(--mono);font-size:13px;color:var(--fg-1);">{p.name}</span>
             <div style="display:flex;align-items:center;gap:10px;">
-              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-                <input
-                  type="checkbox"
-                  class="project-toggle"
-                  data-name={p.name}
-                  checked={p.enabled}
-                  style="width:14px;height:14px;cursor:pointer;accent-color:var(--accent);"
-                />
-                <span style="font-size:11px;font-family:var(--mono);color:var(--fg-3);">
-                  {p.enabled ? "활성" : "비활성"}
-                </span>
+              <label style="display:flex;align-items:center;gap:5px;cursor:pointer;">
+                <input type="checkbox" class="project-toggle" data-name={p.name} checked={p.enabled}
+                  style="width:14px;height:14px;cursor:pointer;accent-color:var(--accent);" />
+                <span style="font-size:11px;font-family:var(--mono);color:var(--fg-3);">{p.enabled ? "활성" : "비활성"}</span>
               </label>
-              <button
-                type="button"
-                class="remove-project"
-                data-name={p.name}
-                aria-label="제거"
-                style="padding:2px 6px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--fg-3);font-size:11px;cursor:pointer;"
-              >✕</button>
+              <button type="button" class="remove-project" data-name={p.name}
+                style="padding:2px 6px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--fg-3);font-size:11px;cursor:pointer;">✕</button>
             </div>
           </li>
         ))}
       </ul>
-    </div>
 
-    <!-- 프로젝트 추가 -->
-    <div style="padding:14px;border:1px dashed var(--border);border-radius:4px;">
-      <div style="display:flex;gap:8px;">
-        <input
-          id="add-name"
-          type="text"
-          placeholder="repo 이름 (예: Ghost_March)"
-          style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg-1);font-family:var(--mono);font-size:12px;outline:none;"
-        />
-        <button
-          id="add-project"
-          type="button"
-          style="padding:7px 14px;border:1px solid var(--border);border-radius:4px;background:var(--bg-2);color:var(--fg-1);font-size:12px;cursor:pointer;white-space:nowrap;"
-        >추가</button>
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <input id="add-name" type="text" placeholder="repo 이름 추가 (예: my-project)"
+          style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg-1);font-family:var(--mono);font-size:12px;outline:none;" />
+        <button id="add-project" class="btn-secondary">추가</button>
       </div>
-    </div>
 
-    <!-- 저장 버튼 -->
-    <div style="margin-top:24px;display:flex;justify-content:flex-end;">
-      <button
-        id="save-btn"
-        type="button"
-        style="padding:9px 20px;border:1px solid var(--accent);border-radius:4px;background:var(--accent);color:#fff;font-size:13px;font-weight:600;cursor:pointer;"
-      >
-        저장 &amp; 배포
-      </button>
+      <div style="display:flex;justify-content:flex-end;">
+        <button id="save-btn" class="btn-primary">저장 &amp; 재배포</button>
+      </div>
     </div>
   </section>
 
   <Footer />
 </Layout>
 
-<script define:vars={{ DASHBOARD_REPO, initialProjects }}>
-  const PAT_KEY = "__dashboard_pat__";
+<style>
+  .card {
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-1);
+  }
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .section-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--fg-3);
+    font-family: var(--mono);
+  }
+  .status-badge {
+    font-size: 11px;
+    font-family: var(--mono);
+    color: var(--fg-3);
+  }
+  .conn-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+  }
+  .conn-badge {
+    font-size: 11px;
+    font-family: var(--mono);
+    padding: 2px 8px;
+    border-radius: 3px;
+  }
+  .conn-badge.pending  { color: var(--fg-3); background: var(--bg-1); }
+  .conn-badge.ok       { color: #1a7f1a; background: #e6f4e6; }
+  .conn-badge.error    { color: #b91c1c; background: #fde8e8; }
+  .sel {
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+    color: var(--fg-1);
+    font-family: var(--mono);
+    font-size: 12px;
+    outline: none;
+    cursor: pointer;
+  }
+  .project-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+  }
+  .btn-primary {
+    padding: 7px 16px;
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn-secondary {
+    padding: 7px 14px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-2);
+    color: var(--fg-1);
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn-ghost {
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+    color: var(--fg-3);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  @media (prefers-color-scheme: dark) {
+    .conn-badge.ok    { color: #4ade80; background: #052e16; }
+    .conn-badge.error { color: #f87171; background: #2d1515; }
+  }
+  [data-theme="dark"] .conn-badge.ok    { color: #4ade80; background: #052e16; }
+  [data-theme="dark"] .conn-badge.error { color: #f87171; background: #2d1515; }
+</style>
 
-  // PAT 상태 표시
+<script define:vars={{ DASHBOARD_REPO, CLAUDE_MODELS, CODEX_MODELS, initialProjects }}>
+  const PAT_KEY      = "__dashboard_pat__";
+  const PROVIDER_KEY = "__dashboard_provider__";
+  const MODEL_KEY    = "__dashboard_model__";
+
+  const pat$ = () => localStorage.getItem(PAT_KEY) || "";
+
+  // ── PAT ──────────────────────────────────────────────────────────
   function refreshPatStatus() {
-    const pat = localStorage.getItem(PAT_KEY) || "";
-    const status = document.getElementById("pat-status");
-    const input = document.getElementById("pat-input");
+    const pat = pat$();
+    const el = document.getElementById("pat-status");
     if (pat) {
-      status.textContent = "설정됨 (" + pat.slice(0, 8) + "…)";
-      status.style.color = "var(--risk-low)";
-      input.value = "";
-      input.placeholder = "변경하려면 새 토큰을 입력";
+      el.textContent = "설정됨 (" + pat.slice(0, 8) + "…)";
+      el.style.color = "var(--risk-low)";
+      document.getElementById("pat-input").placeholder = "변경하려면 새 토큰 입력";
     } else {
-      status.textContent = "미설정";
-      status.style.color = "var(--fg-3)";
+      el.textContent = "미설정";
+      el.style.color = "var(--fg-3)";
     }
   }
-
-  refreshPatStatus();
-
   document.getElementById("pat-save").addEventListener("click", () => {
-    const val = document.getElementById("pat-input").value.trim();
-    if (!val) return;
-    localStorage.setItem(PAT_KEY, val);
+    const v = document.getElementById("pat-input").value.trim();
+    if (!v) return;
+    localStorage.setItem(PAT_KEY, v);
+    document.getElementById("pat-input").value = "";
     refreshPatStatus();
+    checkConnections();
   });
-
   document.getElementById("pat-clear").addEventListener("click", () => {
     localStorage.removeItem(PAT_KEY);
     document.getElementById("pat-input").value = "";
     refreshPatStatus();
   });
+  refreshPatStatus();
 
-  // 토글 라벨 동기화
-  document.querySelectorAll(".project-toggle").forEach((cb) => {
-    cb.addEventListener("change", () => {
-      const label = cb.parentElement.querySelector("span");
-      label.textContent = cb.checked ? "활성" : "비활성";
-    });
-  });
+  // ── 연동 상태 ──────────────────────────────────────────────────────
+  async function checkConnections() {
+    const pat = pat$();
+    const headers = pat
+      ? { Authorization: `Bearer ${pat}`, Accept: "application/vnd.github+json" }
+      : { Accept: "application/vnd.github+json" };
 
-  // 프로젝트 제거
-  document.getElementById("project-list").addEventListener("click", (e) => {
-    const btn = e.target.closest(".remove-project");
-    if (!btn) return;
-    const li = btn.closest("li[data-project]");
-    if (li) li.remove();
-  });
+    const claudeEl = document.getElementById("conn-claude");
+    const codexEl  = document.getElementById("conn-codex");
 
-  // 프로젝트 추가
-  document.getElementById("add-project").addEventListener("click", () => {
-    const input = document.getElementById("add-name");
-    const name = input.value.trim();
-    if (!name) return;
-
-    const existing = document.querySelector(`li[data-project="${name}"]`);
-    if (existing) {
-      input.value = "";
-      return;
-    }
-
-    const li = document.createElement("li");
-    li.dataset.project = name;
-    li.style.cssText =
-      "display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1px solid var(--border);border-radius:4px;background:var(--bg-1);";
-    li.innerHTML = `
-      <span style="font-family:var(--mono);font-size:13px;color:var(--fg-1);">${name}</span>
-      <div style="display:flex;align-items:center;gap:10px;">
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-          <input type="checkbox" class="project-toggle" data-name="${name}" checked
-            style="width:14px;height:14px;cursor:pointer;accent-color:var(--accent);" />
-          <span style="font-size:11px;font-family:var(--mono);color:var(--fg-3);">활성</span>
-        </label>
-        <button type="button" class="remove-project" data-name="${name}" aria-label="제거"
-          style="padding:2px 6px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--fg-3);font-size:11px;cursor:pointer;">✕</button>
-      </div>`;
-    li.querySelector(".project-toggle").addEventListener("change", function () {
-      const lbl = this.parentElement.querySelector("span");
-      lbl.textContent = this.checked ? "활성" : "비활성";
-    });
-    document.getElementById("project-list").appendChild(li);
-    input.value = "";
-  });
-
-  // 저장 & 배포
-  document.getElementById("save-btn").addEventListener("click", async () => {
-    const pat = localStorage.getItem(PAT_KEY);
-    const statusEl = document.getElementById("save-status");
+    claudeEl.textContent = "확인 중…"; claudeEl.className = "conn-badge pending";
+    codexEl.textContent  = "확인 중…"; codexEl.className  = "conn-badge pending";
 
     if (!pat) {
-      statusEl.textContent = "⚠ 토큰을 먼저 설정하세요";
-      statusEl.style.color = "var(--risk-high)";
+      claudeEl.textContent = "토큰 필요"; claudeEl.className = "conn-badge error";
+      codexEl.textContent  = "토큰 필요"; codexEl.className  = "conn-badge error";
       return;
     }
 
-    const items = [];
-    document.querySelectorAll("li[data-project]").forEach((li) => {
-      const name = li.dataset.project;
-      const enabled = li.querySelector(".project-toggle").checked;
-      items.push({ name, enabled });
-    });
+    // Claude: ANTHROPIC_API_KEY secret 존재 확인
+    try {
+      const r = await fetch(
+        `https://api.github.com/repos/${DASHBOARD_REPO}/actions/secrets/ANTHROPIC_API_KEY`,
+        { headers }
+      );
+      if (r.status === 200) {
+        claudeEl.textContent = "✓ 연결됨"; claudeEl.className = "conn-badge ok";
+      } else {
+        claudeEl.textContent = "✗ 미등록"; claudeEl.className = "conn-badge error";
+      }
+    } catch {
+      claudeEl.textContent = "✗ 오류"; claudeEl.className = "conn-badge error";
+    }
 
-    statusEl.textContent = "저장 중…";
-    statusEl.style.color = "var(--fg-3)";
+    // Codex: self-hosted runner with codex label 확인
+    try {
+      const r = await fetch(
+        `https://api.github.com/repos/${DASHBOARD_REPO}/actions/runners`,
+        { headers }
+      );
+      if (r.ok) {
+        const { runners } = await r.json();
+        const codexRunner = (runners || []).find(
+          (rn) => rn.status === "online" && rn.labels?.some((l) => l.name === "codex")
+        );
+        if (codexRunner) {
+          codexEl.textContent = `✓ 온라인 (${codexRunner.name})`; codexEl.className = "conn-badge ok";
+        } else {
+          const any = (runners || []).find((rn) => rn.labels?.some((l) => l.name === "codex"));
+          codexEl.textContent = any ? "⚠ 오프라인" : "✗ runner 없음";
+          codexEl.className = "conn-badge error";
+        }
+      } else {
+        codexEl.textContent = "✗ 권한 없음"; codexEl.className = "conn-badge error";
+      }
+    } catch {
+      codexEl.textContent = "✗ 오류"; codexEl.className = "conn-badge error";
+    }
+  }
+  document.getElementById("check-connections").addEventListener("click", checkConnections);
+  checkConnections();
+
+  // ── provider / model 선택 ─────────────────────────────────────────
+  const selProvider = document.getElementById("sel-provider");
+  const selModel    = document.getElementById("sel-model");
+
+  function populateModels(provider) {
+    const models = provider === "codex" ? CODEX_MODELS : CLAUDE_MODELS;
+    selModel.innerHTML = models.map(m => `<option value="${m.value}">${m.label}</option>`).join("");
+    const saved = localStorage.getItem(MODEL_KEY + "_" + provider);
+    if (saved) selModel.value = saved;
+  }
+
+  selProvider.value = localStorage.getItem(PROVIDER_KEY) || "claude";
+  populateModels(selProvider.value);
+
+  selProvider.addEventListener("change", () => {
+    localStorage.setItem(PROVIDER_KEY, selProvider.value);
+    populateModels(selProvider.value);
+  });
+  selModel.addEventListener("change", () => {
+    localStorage.setItem(MODEL_KEY + "_" + selProvider.value, selModel.value);
+  });
+
+  // ── 리포트 실행 ───────────────────────────────────────────────────
+  document.getElementById("run-btn").addEventListener("click", async () => {
+    const pat = pat$();
+    const statusEl = document.getElementById("run-status");
+    if (!pat) { statusEl.textContent = "⚠ 토큰 필요"; statusEl.style.color = "var(--risk-high)"; return; }
+
+    const provider = selProvider.value;
+    const model    = selModel.value;
+    const repo     = document.getElementById("sel-repo").value;
+    const force    = document.getElementById("chk-force").checked;
+
+    statusEl.textContent = "실행 중…"; statusEl.style.color = "var(--fg-3)";
+
+    const inputs = { provider, model, force: String(force) };
+    if (repo) inputs.target_repo = repo;
 
     try {
-      // 현재 파일 SHA 조회
-      const getRes = await fetch(
-        `https://api.github.com/repos/${DASHBOARD_REPO}/contents/db/projects.json`,
-        { headers: { Authorization: `Bearer ${pat}`, Accept: "application/vnd.github+json" } }
-      );
-      if (!getRes.ok) throw new Error(`GET 실패: ${getRes.status}`);
-      const { sha } = await getRes.json();
-
-      // 새 내용으로 업데이트
-      const newContent = btoa(unescape(encodeURIComponent(JSON.stringify(items, null, 2) + "\n")));
-      const putRes = await fetch(
-        `https://api.github.com/repos/${DASHBOARD_REPO}/contents/db/projects.json`,
-        {
-          method: "PUT",
-          headers: {
-            Authorization: `Bearer ${pat}`,
-            Accept: "application/vnd.github+json",
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            message: "chore(settings): update tracked projects",
-            content: newContent,
-            sha,
-          }),
-        }
-      );
-      if (!putRes.ok) throw new Error(`PUT 실패: ${putRes.status}`);
-
-      // 배포 트리거
-      await fetch(
-        `https://api.github.com/repos/${DASHBOARD_REPO}/actions/workflows/deploy.yml/dispatches`,
+      const r = await fetch(
+        `https://api.github.com/repos/${DASHBOARD_REPO}/actions/workflows/generate-reports.yml/dispatches`,
         {
           method: "POST",
           headers: {
@@ -288,15 +395,102 @@ const initialProjects = projectsData as { name: string; enabled: boolean }[];
             Accept: "application/vnd.github+json",
             "Content-Type": "application/json",
           },
+          body: JSON.stringify({ ref: "main", inputs }),
+        }
+      );
+      if (r.status === 204) {
+        statusEl.textContent = "✓ 워크플로우 시작됨";
+        statusEl.style.color = "var(--risk-low)";
+      } else {
+        const err = await r.json().catch(() => ({}));
+        statusEl.textContent = `✗ ${r.status} ${err.message || ""}`;
+        statusEl.style.color = "var(--risk-high)";
+      }
+    } catch (e) {
+      statusEl.textContent = "✗ " + e.message;
+      statusEl.style.color = "var(--risk-high)";
+    }
+  });
+
+  // ── 프로젝트 토글 ──────────────────────────────────────────────────
+  document.querySelectorAll(".project-toggle").forEach((cb) => {
+    cb.addEventListener("change", () => {
+      cb.parentElement.querySelector("span").textContent = cb.checked ? "활성" : "비활성";
+    });
+  });
+  document.getElementById("project-list").addEventListener("click", (e) => {
+    const btn = e.target.closest(".remove-project");
+    if (btn) btn.closest("li[data-project]")?.remove();
+  });
+  document.getElementById("add-project").addEventListener("click", () => {
+    const input = document.getElementById("add-name");
+    const name = input.value.trim();
+    if (!name || document.querySelector(`li[data-project="${name}"]`)) { input.value = ""; return; }
+    const li = document.createElement("li");
+    li.dataset.project = name;
+    li.className = "project-row";
+    li.innerHTML = `
+      <span style="font-family:var(--mono);font-size:13px;color:var(--fg-1);">${name}</span>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;">
+          <input type="checkbox" class="project-toggle" data-name="${name}" checked
+            style="width:14px;height:14px;cursor:pointer;accent-color:var(--accent);" />
+          <span style="font-size:11px;font-family:var(--mono);color:var(--fg-3);">활성</span>
+        </label>
+        <button type="button" class="remove-project" data-name="${name}"
+          style="padding:2px 6px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--fg-3);font-size:11px;cursor:pointer;">✕</button>
+      </div>`;
+    li.querySelector(".project-toggle").addEventListener("change", function () {
+      this.parentElement.querySelector("span").textContent = this.checked ? "활성" : "비활성";
+    });
+    document.getElementById("project-list").appendChild(li);
+    input.value = "";
+  });
+
+  // ── 프로젝트 저장 & 배포 ──────────────────────────────────────────
+  document.getElementById("save-btn").addEventListener("click", async () => {
+    const pat = pat$();
+    const statusEl = document.getElementById("save-status");
+    if (!pat) { statusEl.textContent = "⚠ 토큰 필요"; statusEl.style.color = "var(--risk-high)"; return; }
+
+    const items = [];
+    document.querySelectorAll("li[data-project]").forEach((li) => {
+      items.push({ name: li.dataset.project, enabled: li.querySelector(".project-toggle").checked });
+    });
+
+    statusEl.textContent = "저장 중…"; statusEl.style.color = "var(--fg-3)";
+
+    try {
+      const getRes = await fetch(
+        `https://api.github.com/repos/${DASHBOARD_REPO}/contents/db/projects.json`,
+        { headers: { Authorization: `Bearer ${pat}`, Accept: "application/vnd.github+json" } }
+      );
+      if (!getRes.ok) throw new Error(`GET 실패: ${getRes.status}`);
+      const { sha } = await getRes.json();
+
+      const newContent = btoa(unescape(encodeURIComponent(JSON.stringify(items, null, 2) + "\n")));
+      const putRes = await fetch(
+        `https://api.github.com/repos/${DASHBOARD_REPO}/contents/db/projects.json`,
+        {
+          method: "PUT",
+          headers: { Authorization: `Bearer ${pat}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
+          body: JSON.stringify({ message: "chore(settings): update tracked projects", content: newContent, sha }),
+        }
+      );
+      if (!putRes.ok) throw new Error(`PUT 실패: ${putRes.status}`);
+
+      await fetch(
+        `https://api.github.com/repos/${DASHBOARD_REPO}/actions/workflows/deploy.yml/dispatches`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${pat}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
           body: JSON.stringify({ ref: "main" }),
         }
       );
 
-      statusEl.textContent = "✓ 저장 완료 · 배포 중…";
-      statusEl.style.color = "var(--risk-low)";
+      statusEl.textContent = "✓ 저장 완료 · 배포 중…"; statusEl.style.color = "var(--risk-low)";
     } catch (err) {
-      statusEl.textContent = "✗ " + err.message;
-      statusEl.style.color = "var(--risk-high)";
+      statusEl.textContent = "✗ " + err.message; statusEl.style.color = "var(--risk-high)";
     }
   });
 </script>

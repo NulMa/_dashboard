@@ -22,6 +22,11 @@ on:
         type: choice
         options: [claude, codex]
         default: claude
+      model:
+        description: "모델 (claude: claude-sonnet-4-6 등 / codex: gpt-5.5 등, 빈칸이면 기본값)"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -270,6 +275,7 @@ jobs:
         shell: bash
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_MODEL: ${{ inputs.model || 'claude-sonnet-4-6' }}
           PROMPT_FILE: ${{ steps.prompt.outputs.path }}
           REPO: ${{ matrix.repo }}
         run: |
@@ -287,7 +293,7 @@ import anthropic, os, sys
 client = anthropic.Anthropic()
 prompt = open(os.environ["PROMPT_FILE"], encoding="utf-8").read()
 msg = client.messages.create(
-    model="claude-sonnet-4-6",
+    model=os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6"),
     max_tokens=8192,
     messages=[{"role": "user", "content": prompt}],
 )
@@ -386,7 +392,7 @@ PYEOF
           CODEX_STDOUT=$(mktemp)
           CODEX_CMD="${CODEX_BIN:-codex}"
           if "$CODEX_CMD" --ask-for-approval never exec \
-              --model gpt-5.5 \
+              --model "${{ inputs.model || 'gpt-5.5' }}" \
               --sandbox read-only \
               --output-last-message "$TMP" \
               - < "$PROMPT_FILE" > "$CODEX_STDOUT"; then
