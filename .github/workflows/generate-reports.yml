@@ -7,9 +7,6 @@
 name: generate-reports
 
 on:
-  schedule:
-    # 10 minutes; actual Codex calls are gated per repo.
-    - cron: "*/10 * * * *"
   workflow_dispatch:
     inputs:
       target_repo:
