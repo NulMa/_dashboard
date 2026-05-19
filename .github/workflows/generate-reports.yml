@@ -288,17 +288,7 @@ jobs:
           mkdir -p "$OUT_DIR"
 
           TMP=$(mktemp)
-          python3 - <<'PYEOF' > "$TMP"
-import anthropic, os, sys
-client = anthropic.Anthropic()
-prompt = open(os.environ["PROMPT_FILE"], encoding="utf-8").read()
-msg = client.messages.create(
-    model=os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6"),
-    max_tokens=8192,
-    messages=[{"role": "user", "content": prompt}],
-)
-sys.stdout.write(msg.content[0].text)
-PYEOF
+          python3 scripts/run-claude-api.py > "$TMP"
 
           if [[ ! -s "$TMP" ]]; then
             echo "::error::Claude output empty for $REPO"
