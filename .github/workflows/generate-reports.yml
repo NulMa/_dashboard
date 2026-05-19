@@ -138,6 +138,12 @@ jobs:
 
           Add-Content -Path $env:GITHUB_PATH -Value $bin
 
+          # Git bash
+          $gitBash = "C:\Program Files\Git\usr\bin"
+          if (Test-Path $gitBash) {
+            Add-Content -Path $env:GITHUB_PATH -Value $gitBash
+          }
+
           $npmPrefix = (npm config get prefix).Trim()
           Add-Content -Path $env:GITHUB_PATH -Value $npmPrefix
           $codexCmd = (Join-Path $npmPrefix "codex.cmd") -replace "\\", "/"
