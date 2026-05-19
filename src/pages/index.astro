@@ -21,7 +21,7 @@ import {
 
 const BASE = import.meta.env.BASE_URL;
 const base = BASE.endsWith("/") ? BASE.slice(0, -1) : BASE;
-const ORG = "Bit-Unity15th-MultiplayGameProjects";
+const ORG = "NulMa";
 const ORG_CHAT_KEY = "__organization__";
 const chatSupabaseUrl = import.meta.env.PUBLIC_CHAT_SUPABASE_URL ?? "";
 const chatSupabaseAnonKey = import.meta.env.PUBLIC_CHAT_SUPABASE_ANON_KEY ?? "";
@@ -61,7 +61,7 @@ const cards = projects.map((p) => ({
 }));
 ---
 
-<Layout title="Bit-Unity15th Dashboard">
+<Layout title="NulMa Dashboard">
   <Header>
     <div
       slot="left"
@@ -70,7 +70,7 @@ const cards = projects.map((p) => ({
       <Logo />
       <span
         style="font-family:var(--mono);font-size:13px;font-weight:600;letter-spacing:-0.01em;color:var(--fg-1);white-space:nowrap;"
-        >Bit-Unity15th</span
+        >NulMa</span
       >
       <span style="color:var(--fg-3);font-size:13px;">/</span>
       <span style="font-size:13px;color:var(--fg-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">dashboard</span>
@@ -103,8 +103,7 @@ const cards = projects.map((p) => ({
         <p
           style="margin:6px 0 0;color:var(--fg-2);font-size:13px;line-height:1.6;"
         >
-          {ORG} organization 내 {totalProjects}개
-          프로젝트의 코드리뷰·진행도 리포트.
+          {totalProjects}개 프로젝트의 코드리뷰·진행도 리포트.
         </p>
       </div>
       <div

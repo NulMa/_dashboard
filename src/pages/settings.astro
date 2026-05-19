@@ -1,0 +1,302 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+import Logo from "../components/Logo.astro";
+import projectsData from "../../db/projects.json";
+
+const BASE = import.meta.env.BASE_URL;
+const base = BASE.endsWith("/") ? BASE.slice(0, -1) : BASE;
+
+const DASHBOARD_REPO = "NulMa/_dashboard";
+const initialProjects = projectsData as { name: string; enabled: boolean }[];
+---
+
+<Layout title="Settings · Dashboard">
+  <Header>
+    <div
+      slot="left"
+      style="display:flex;align-items:center;gap:10px;font-family:var(--sans);min-width:0;"
+    >
+      <Logo />
+      <a
+        href={`${base}/`}
+        style="font-family:var(--mono);font-size:13px;font-weight:600;letter-spacing:-0.01em;color:var(--fg-2);text-decoration:none;white-space:nowrap;"
+      >NulMa</a>
+      <span style="color:var(--fg-3);font-size:13px;">/</span>
+      <span style="font-size:13px;color:var(--fg-1);white-space:nowrap;">settings</span>
+    </div>
+  </Header>
+
+  <section style="padding:32px 24px 48px;max-width:680px;margin:0 auto;">
+    <h1 style="font-size:20px;font-weight:600;margin:0 0 6px;letter-spacing:-0.02em;color:var(--fg-1);">
+      Settings
+    </h1>
+    <p style="margin:0 0 32px;color:var(--fg-2);font-size:13px;">
+      리포트를 생성할 프로젝트를 관리합니다.
+    </p>
+
+    <!-- PAT 설정 -->
+    <div style="margin-bottom:28px;padding:16px;border:1px solid var(--border);border-radius:6px;background:var(--bg-1);">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <span style="font-size:12px;font-weight:600;letter-spacing:0.04em;color:var(--fg-2);font-family:var(--mono);">
+          GITHUB TOKEN
+        </span>
+        <span id="pat-status" style="font-size:11px;font-family:var(--mono);color:var(--fg-3);">
+          미설정
+        </span>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <input
+          id="pat-input"
+          type="password"
+          placeholder="github_pat_… 또는 ghp_…"
+          style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg-1);font-family:var(--mono);font-size:12px;outline:none;"
+        />
+        <button
+          id="pat-save"
+          type="button"
+          style="padding:7px 14px;border:1px solid var(--border);border-radius:4px;background:var(--bg-2);color:var(--fg-1);font-size:12px;cursor:pointer;white-space:nowrap;"
+        >저장</button>
+        <button
+          id="pat-clear"
+          type="button"
+          style="padding:7px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg-3);font-size:12px;cursor:pointer;"
+        >삭제</button>
+      </div>
+      <p style="margin:8px 0 0;font-size:11px;color:var(--fg-3);font-family:var(--mono);">
+        Contents: Read &amp; Write 권한의 fine-grained PAT 필요. localStorage에만 저장됩니다.
+      </p>
+    </div>
+
+    <!-- 프로젝트 목록 -->
+    <div style="margin-bottom:24px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <span style="font-size:12px;font-weight:600;letter-spacing:0.04em;color:var(--fg-2);font-family:var(--mono);">
+          PROJECTS
+        </span>
+        <span id="save-status" style="font-size:11px;font-family:var(--mono);color:var(--fg-3);"></span>
+      </div>
+
+      <ul id="project-list" style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;">
+        {initialProjects.map((p) => (
+          <li
+            data-project={p.name}
+            style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1px solid var(--border);border-radius:4px;background:var(--bg-1);"
+          >
+            <span style="font-family:var(--mono);font-size:13px;color:var(--fg-1);">{p.name}</span>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                <input
+                  type="checkbox"
+                  class="project-toggle"
+                  data-name={p.name}
+                  checked={p.enabled}
+                  style="width:14px;height:14px;cursor:pointer;accent-color:var(--accent);"
+                />
+                <span style="font-size:11px;font-family:var(--mono);color:var(--fg-3);">
+                  {p.enabled ? "활성" : "비활성"}
+                </span>
+              </label>
+              <button
+                type="button"
+                class="remove-project"
+                data-name={p.name}
+                aria-label="제거"
+                style="padding:2px 6px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--fg-3);font-size:11px;cursor:pointer;"
+              >✕</button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+
+    <!-- 프로젝트 추가 -->
+    <div style="padding:14px;border:1px dashed var(--border);border-radius:4px;">
+      <div style="display:flex;gap:8px;">
+        <input
+          id="add-name"
+          type="text"
+          placeholder="repo 이름 (예: Ghost_March)"
+          style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg-1);font-family:var(--mono);font-size:12px;outline:none;"
+        />
+        <button
+          id="add-project"
+          type="button"
+          style="padding:7px 14px;border:1px solid var(--border);border-radius:4px;background:var(--bg-2);color:var(--fg-1);font-size:12px;cursor:pointer;white-space:nowrap;"
+        >추가</button>
+      </div>
+    </div>
+
+    <!-- 저장 버튼 -->
+    <div style="margin-top:24px;display:flex;justify-content:flex-end;">
+      <button
+        id="save-btn"
+        type="button"
+        style="padding:9px 20px;border:1px solid var(--accent);border-radius:4px;background:var(--accent);color:#fff;font-size:13px;font-weight:600;cursor:pointer;"
+      >
+        저장 &amp; 배포
+      </button>
+    </div>
+  </section>
+
+  <Footer />
+</Layout>
+
+<script define:vars={{ DASHBOARD_REPO, initialProjects }}>
+  const PAT_KEY = "__dashboard_pat__";
+
+  // PAT 상태 표시
+  function refreshPatStatus() {
+    const pat = localStorage.getItem(PAT_KEY) || "";
+    const status = document.getElementById("pat-status");
+    const input = document.getElementById("pat-input");
+    if (pat) {
+      status.textContent = "설정됨 (" + pat.slice(0, 8) + "…)";
+      status.style.color = "var(--risk-low)";
+      input.value = "";
+      input.placeholder = "변경하려면 새 토큰을 입력";
+    } else {
+      status.textContent = "미설정";
+      status.style.color = "var(--fg-3)";
+    }
+  }
+
+  refreshPatStatus();
+
+  document.getElementById("pat-save").addEventListener("click", () => {
+    const val = document.getElementById("pat-input").value.trim();
+    if (!val) return;
+    localStorage.setItem(PAT_KEY, val);
+    refreshPatStatus();
+  });
+
+  document.getElementById("pat-clear").addEventListener("click", () => {
+    localStorage.removeItem(PAT_KEY);
+    document.getElementById("pat-input").value = "";
+    refreshPatStatus();
+  });
+
+  // 토글 라벨 동기화
+  document.querySelectorAll(".project-toggle").forEach((cb) => {
+    cb.addEventListener("change", () => {
+      const label = cb.parentElement.querySelector("span");
+      label.textContent = cb.checked ? "활성" : "비활성";
+    });
+  });
+
+  // 프로젝트 제거
+  document.getElementById("project-list").addEventListener("click", (e) => {
+    const btn = e.target.closest(".remove-project");
+    if (!btn) return;
+    const li = btn.closest("li[data-project]");
+    if (li) li.remove();
+  });
+
+  // 프로젝트 추가
+  document.getElementById("add-project").addEventListener("click", () => {
+    const input = document.getElementById("add-name");
+    const name = input.value.trim();
+    if (!name) return;
+
+    const existing = document.querySelector(`li[data-project="${name}"]`);
+    if (existing) {
+      input.value = "";
+      return;
+    }
+
+    const li = document.createElement("li");
+    li.dataset.project = name;
+    li.style.cssText =
+      "display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1px solid var(--border);border-radius:4px;background:var(--bg-1);";
+    li.innerHTML = `
+      <span style="font-family:var(--mono);font-size:13px;color:var(--fg-1);">${name}</span>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="checkbox" class="project-toggle" data-name="${name}" checked
+            style="width:14px;height:14px;cursor:pointer;accent-color:var(--accent);" />
+          <span style="font-size:11px;font-family:var(--mono);color:var(--fg-3);">활성</span>
+        </label>
+        <button type="button" class="remove-project" data-name="${name}" aria-label="제거"
+          style="padding:2px 6px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--fg-3);font-size:11px;cursor:pointer;">✕</button>
+      </div>`;
+    li.querySelector(".project-toggle").addEventListener("change", function () {
+      const lbl = this.parentElement.querySelector("span");
+      lbl.textContent = this.checked ? "활성" : "비활성";
+    });
+    document.getElementById("project-list").appendChild(li);
+    input.value = "";
+  });
+
+  // 저장 & 배포
+  document.getElementById("save-btn").addEventListener("click", async () => {
+    const pat = localStorage.getItem(PAT_KEY);
+    const statusEl = document.getElementById("save-status");
+
+    if (!pat) {
+      statusEl.textContent = "⚠ 토큰을 먼저 설정하세요";
+      statusEl.style.color = "var(--risk-high)";
+      return;
+    }
+
+    const items = [];
+    document.querySelectorAll("li[data-project]").forEach((li) => {
+      const name = li.dataset.project;
+      const enabled = li.querySelector(".project-toggle").checked;
+      items.push({ name, enabled });
+    });
+
+    statusEl.textContent = "저장 중…";
+    statusEl.style.color = "var(--fg-3)";
+
+    try {
+      // 현재 파일 SHA 조회
+      const getRes = await fetch(
+        `https://api.github.com/repos/${DASHBOARD_REPO}/contents/db/projects.json`,
+        { headers: { Authorization: `Bearer ${pat}`, Accept: "application/vnd.github+json" } }
+      );
+      if (!getRes.ok) throw new Error(`GET 실패: ${getRes.status}`);
+      const { sha } = await getRes.json();
+
+      // 새 내용으로 업데이트
+      const newContent = btoa(unescape(encodeURIComponent(JSON.stringify(items, null, 2) + "\n")));
+      const putRes = await fetch(
+        `https://api.github.com/repos/${DASHBOARD_REPO}/contents/db/projects.json`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${pat}`,
+            Accept: "application/vnd.github+json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: "chore(settings): update tracked projects",
+            content: newContent,
+            sha,
+          }),
+        }
+      );
+      if (!putRes.ok) throw new Error(`PUT 실패: ${putRes.status}`);
+
+      // 배포 트리거
+      await fetch(
+        `https://api.github.com/repos/${DASHBOARD_REPO}/actions/workflows/deploy.yml/dispatches`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${pat}`,
+            Accept: "application/vnd.github+json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ ref: "main" }),
+        }
+      );
+
+      statusEl.textContent = "✓ 저장 완료 · 배포 중…";
+      statusEl.style.color = "var(--risk-low)";
+    } catch (err) {
+      statusEl.textContent = "✗ " + err.message;
+      statusEl.style.color = "var(--risk-high)";
+    }
+  });
+</script>
