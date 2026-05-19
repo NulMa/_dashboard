@@ -1,8 +1,6 @@
-# 주기적으로 프로젝트 repo 들을 스캔해, 게이트를 통과한 repo 에 한해
-# Codex CLI 리뷰를 돌리고 결과를 reports/ 에 커밋한다.
-#
-# Codex 는 self-hosted runner 의 ChatGPT-managed auth.json 을 사용한다.
-# API key 인증으로 우회되지 않도록 실행 step 에서 OPENAI_API_KEY 를 unset 한다.
+# 수동 실행 시 provider 선택:
+#   claude → ubuntu-latest + ANTHROPIC_API_KEY
+#   codex  → self-hosted codex runner + ChatGPT auth
 
 name: generate-reports
 
@@ -18,8 +16,13 @@ on:
         required: false
         type: boolean
         default: false
+      provider:
+        description: "리뷰 생성 도구"
+        required: false
+        type: choice
+        options: [claude, codex]
+        default: claude
 
-# Default is read-only. review pushes report commits; summary dispatches deploys.
 permissions:
   contents: read
 
@@ -33,7 +36,7 @@ env:
 
 jobs:
   # ===========================================================================
-  # discover — 리뷰 대상 repo 목록 확정
+  # discover
   # ===========================================================================
   discover:
     runs-on: ubuntu-latest
@@ -54,8 +57,6 @@ jobs:
           set -euo pipefail
 
           if [[ -n "${TARGET_REPO:-}" ]]; then
-            # 수동 실행 + 특정 repo 지정: 해당 repo 하나만. (게이트는 여전히 타니
-            # 존재/권한은 review 잡의 check 단계에서 최종 확인된다.)
             echo "[info] workflow_dispatch target_repo override: $TARGET_REPO" >&2
             repos=$(jq -cn --arg r "$TARGET_REPO" '[$r]')
           else
@@ -71,40 +72,33 @@ jobs:
           {
             echo "## Discover"
             echo ""
+            echo "- **provider:** \`${{ inputs.provider }}\`"
             echo "- **repos found:** $count"
             echo "- **list:** \`$repos\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ===========================================================================
-  # review — repo 하나당 cell. 게이트 → 프롬프트 → Codex → 커밋.
+  # review
   # ===========================================================================
   review:
     needs: discover
-    # 빈 배열이면 skip (matrix 가 0개라 어차피 실행 안 되지만 명시적으로).
     if: needs.discover.outputs.count != '0'
-    runs-on: [self-hosted, codex]
+    runs-on: ${{ inputs.provider == 'codex' && fromJSON('["self-hosted", "codex"]') || 'ubuntu-latest' }}
     permissions:
       contents: write
     strategy:
       fail-fast: false
-      # ChatGPT-managed auth.json 은 한 runner/직렬 stream 에서만 쓰는 것이 안전하다.
       max-parallel: 1
       matrix:
         repo: ${{ fromJson(needs.discover.outputs.repos) }}
-    # 같은 repo 에 대한 중복 실행 방지. cron 이 30 분마다 돌고 긴 리뷰가 끼면
-    # 다음 cron 이 겹칠 수 있다. 취소하지 않고 큐잉한다 (리포트 누락 방지).
     concurrency:
       group: report-${{ matrix.repo }}
       cancel-in-progress: false
     timeout-minutes: 25
-    defaults:
-      run:
-        shell: C:\PROGRA~1\Git\bin\bash.exe --noprofile --norc -e -o pipefail {0}
     steps:
       - name: Checkout _dashboard
         uses: actions/checkout@v4
         with:
-          # rebase-pull-push 대비 히스토리 풀. 커밋/메타 변경 이력 조회도 필요.
           fetch-depth: 0
 
       - name: Set up Python
@@ -112,7 +106,9 @@ jobs:
         with:
           python-version: "3.x"
 
+      # Codex 전용: Windows self-hosted runner 툴 준비
       - name: Prepare Windows runner tools
+        if: inputs.provider == 'codex'
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
@@ -130,7 +126,6 @@ jobs:
             "#!/usr/bin/env bash",
             'python "$@"'
           )
-
           Set-Content -Path (Join-Path $bin "pip3") -Encoding ascii -Value @(
             "#!/usr/bin/env bash",
             'python -m pip "$@"'
@@ -142,14 +137,10 @@ jobs:
           Add-Content -Path $env:GITHUB_PATH -Value $npmPrefix
           $codexCmd = (Join-Path $npmPrefix "codex.cmd") -replace "\\", "/"
           Add-Content -Path $env:GITHUB_ENV -Value "CODEX_BIN=$codexCmd"
-          # 기본 GITHUB_TOKEN 으로 체크아웃 → 같은 repo 푸시 권한 OK.
-          # 외부 org repo 접근은 ORG_REPO_PAT_BIT_UNITY_15TH 로 gh api 에서만 사용.
 
-      # ---------------------------------------------------------------------
-      # 게이트: force=true 면 우회. 아니면 check-needs-report.sh 에 위임.
-      # ---------------------------------------------------------------------
       - name: Reconcile report directory
         id: report_dir
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.REPO_PAT }}
           REPO: ${{ matrix.repo }}
@@ -159,6 +150,7 @@ jobs:
 
       - name: Check gates
         id: gate
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.REPO_PAT }}
           FORCE: ${{ inputs.force }}
@@ -169,9 +161,6 @@ jobs:
           if [[ "${FORCE:-false}" == "true" ]]; then
             echo "[info] force=true - bypassing automatic report gates" >&2
 
-            # force 는 "리포트 판정/문서 점수/Backlog 회계"를 고치기 위한 수동 재발행도
-            # 허용한다. SHA 가 같아도 현재 문서 스냅샷과 누적 open item ledger 로 새
-            # 리포트를 만들 수 있어야 한다.
             DEFAULT_BRANCH=$(gh api "repos/${ORG}/${REPO}" --jq '.default_branch')
             CURRENT_SHA=$(gh api "repos/${ORG}/${REPO}/commits/${DEFAULT_BRANCH}" --jq '.sha')
 
@@ -202,18 +191,13 @@ jobs:
               echo "reason=$REASON"
             } >> "$GITHUB_OUTPUT"
           else
-            # 표준 경로: 스크립트가 GITHUB_OUTPUT 에 직접 게이트 결과를 쓴다.
             bash scripts/check-needs-report.sh "$REPO"
           fi
 
-      # ---------------------------------------------------------------------
-      # Python deps: validate-report.py 와 run-claude-review.sh 의 backlog
-      # 추출이 PyYAML 에 의존한다. ubuntu-latest 에 대개 설치돼 있지만
-      # runner 이미지 변경 대비해 명시적으로 보장.
-      # ---------------------------------------------------------------------
       - name: Commit reconciled report directory
         id: push_reconcile
         if: steps.report_dir.outputs.changed == 'true' && steps.gate.outputs.should_run != 'true'
+        shell: bash
         env:
           REPO:   ${{ matrix.repo }}
           BRANCH: ${{ github.ref_name }}
@@ -225,7 +209,6 @@ jobs:
           git add -A reports
 
           if git diff --staged --quiet; then
-            echo "[info] no reconciliation changes staged" >&2
             echo "pushed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -238,32 +221,23 @@ jobs:
               echo "[info] pushed reconciliation on attempt $attempt"
               break
             fi
-            echo "[warn] push attempt $attempt failed; fetch + rebase + retry" >&2
             git fetch origin "$BRANCH"
-            git rebase "origin/${BRANCH}" || {
-              echo "::error::rebase conflict on attempt $attempt; aborting"
-              git rebase --abort || true
-              exit 1
-            }
-            if [[ $attempt -eq 3 ]]; then
-              echo "::error::push failed 3x"
-              exit 1
-            fi
+            git rebase "origin/${BRANCH}" || { git rebase --abort || true; exit 1; }
+            [[ $attempt -eq 3 ]] && exit 1
           done
 
           echo "pushed=true" >> "$GITHUB_OUTPUT"
 
       - name: Ensure Python deps
         if: steps.gate.outputs.should_run == 'true'
+        shell: bash
         run: |
           python3 -c "import yaml" 2>/dev/null || pip3 install --quiet pyyaml
 
-      # ---------------------------------------------------------------------
-      # 프롬프트 생성: clone + diff 추출 + 템플릿 치환.
-      # ---------------------------------------------------------------------
       - name: Build prompt
         id: prompt
         if: steps.gate.outputs.should_run == 'true'
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.REPO_PAT }}
           FROM_SHA: ${{ steps.gate.outputs.last_sha }}
@@ -272,11 +246,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          # 매 cell 이 별 runner 지만, 이름에 repo 를 박아 실수 방지.
           OUT="/tmp/final-prompt-${REPO//\//__}.md"
           FACTS="/tmp/final-prompt-${REPO//\//__}.clone-facts.json"
 
-          # FROM_SHA 가 비면 run-claude-review.sh 가 "INITIAL" 로 취급한다.
           path=$(
             OUTPUT_PATH="$OUT" \
             CLONE_FACTS_PATH="$FACTS" \
@@ -291,71 +263,111 @@ jobs:
           echo "facts=$FACTS" >> "$GITHUB_OUTPUT"
           echo "[info] prompt bytes: $(wc -c <"$path")" >&2
 
-      # ---------------------------------------------------------------------
-      # Codex CLI: ChatGPT 구독 인증으로 stdin 프롬프트를 실행 → 파일로 저장.
-      # 성공 전까진 reports/ 에 파일을 남기지 않도록 mktemp 사용.
-      # ---------------------------------------------------------------------
+      # ── Claude 경로 ──────────────────────────────────────────────────────
+      - name: Run Claude review
+        id: run_claude
+        if: steps.gate.outputs.should_run == 'true' && inputs.provider == 'claude'
+        shell: bash
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PROMPT_FILE: ${{ steps.prompt.outputs.path }}
+          REPO: ${{ matrix.repo }}
+        run: |
+          set -euo pipefail
+          pip3 install --quiet anthropic
+
+          TS=$(date -u +%Y-%m-%dT%H-%M-%SZ)
+          OUT_DIR="reports/${REPO}"
+          OUT_FILE="${OUT_DIR}/${TS}.md"
+          mkdir -p "$OUT_DIR"
+
+          TMP=$(mktemp)
+          python3 - <<'PYEOF' > "$TMP"
+import anthropic, os, sys
+client = anthropic.Anthropic()
+prompt = open(os.environ["PROMPT_FILE"], encoding="utf-8").read()
+msg = client.messages.create(
+    model="claude-sonnet-4-6",
+    max_tokens=8192,
+    messages=[{"role": "user", "content": prompt}],
+)
+sys.stdout.write(msg.content[0].text)
+PYEOF
+
+          if [[ ! -s "$TMP" ]]; then
+            echo "::error::Claude output empty for $REPO"
+            rm -f "$TMP"
+            echo "status=failed" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          VALIDATE_ARGS=(scripts/validate-report.py "$TMP" --project "$REPO" --strict --new-report)
+          META="reports/${REPO}/.meta.json"
+          REPORTS_DIR="reports/${REPO}"
+          if [[ -d "$REPORTS_DIR" ]]; then
+            VALIDATE_ARGS+=(--reports-dir "$REPORTS_DIR" --enforce-backlog-ledger)
+          elif [[ -f "$META" ]]; then
+            PREVIOUS_REPORT="$(jq -r '.last_report_file // ""' "$META")"
+            if [[ -n "$PREVIOUS_REPORT" && -f "$PREVIOUS_REPORT" ]]; then
+              VALIDATE_ARGS+=(--previous-report "$PREVIOUS_REPORT" --enforce-backlog-carryover)
+            fi
+          fi
+
+          if ! python3 "${VALIDATE_ARGS[@]}"; then
+            echo "::error::validator rejected output for $REPO"
+            rm -f "$TMP"
+            echo "status=failed" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          mv "$TMP" "$OUT_FILE"
+          {
+            echo "out_file=$OUT_FILE"
+            echo "timestamp=$TS"
+            echo "status=success"
+          } >> "$GITHUB_OUTPUT"
+
+      # ── Codex 경로 ───────────────────────────────────────────────────────
       - name: Ensure Codex CLI
-        if: steps.gate.outputs.should_run == 'true'
+        if: steps.gate.outputs.should_run == 'true' && inputs.provider == 'codex'
+        shell: bash
         run: |
           set -euo pipefail
           CODEX_CMD="${CODEX_BIN:-codex}"
           VERSION_OUT="$(mktemp)"
-
           if "$CODEX_CMD" --version >"$VERSION_OUT" 2>&1; then
-            VERSION="$(head -n 1 "$VERSION_OUT")"
-            echo "[info] Codex CLI already available: $VERSION" >&2
-            rm -f "$VERSION_OUT"
-            exit 0
+            echo "[info] Codex CLI: $(head -n 1 "$VERSION_OUT")" >&2
+            rm -f "$VERSION_OUT"; exit 0
           fi
-
-          echo "[info] Codex CLI unavailable; installing @openai/codex@latest" >&2
           for attempt in 1 2 3; do
-            if npm i -g @openai/codex@latest; then
-              break
-            fi
-
-            if "$CODEX_CMD" --version >"$VERSION_OUT" 2>&1; then
-              VERSION="$(head -n 1 "$VERSION_OUT")"
-              echo "::warning::npm install failed, but existing Codex CLI is usable: $VERSION"
-              rm -f "$VERSION_OUT"
-              exit 0
-            fi
-
-            if [[ "$attempt" == "3" ]]; then
-              echo "::error::failed to install Codex CLI after 3 attempts"
-              rm -f "$VERSION_OUT"
-              exit 1
-            fi
-
-            echo "[warn] Codex CLI install failed on attempt $attempt; retrying" >&2
+            npm i -g @openai/codex@latest && break
+            [[ "$attempt" == "3" ]] && exit 1
             sleep $((attempt * 5))
           done
-
           "$CODEX_CMD" --version
           rm -f "$VERSION_OUT"
 
       - name: Verify Codex ChatGPT auth
-        if: steps.gate.outputs.should_run == 'true'
+        if: steps.gate.outputs.should_run == 'true' && inputs.provider == 'codex'
+        shell: bash
         run: |
           set -euo pipefail
           export CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
           AUTH_FILE="$CODEX_HOME/auth.json"
           if [[ ! -f "$AUTH_FILE" ]]; then
-            echo "::error::Codex auth cache missing at $AUTH_FILE. Seed ChatGPT auth on the self-hosted runner first."
+            echo "::error::Codex auth cache missing at $AUTH_FILE"
             exit 1
           fi
-          chmod 700 "$CODEX_HOME"
-          chmod 600 "$AUTH_FILE"
+          chmod 700 "$CODEX_HOME"; chmod 600 "$AUTH_FILE"
           if ! jq -e '.auth_mode == "chatgpt" and ((.tokens.refresh_token // "") != "")' "$AUTH_FILE" >/dev/null; then
             echo "::error::Codex auth cache is not ChatGPT-managed auth with a refresh token."
             exit 1
           fi
-          echo "[info] Codex ChatGPT auth cache present" >&2
 
       - name: Run Codex review
-        id: run
-        if: steps.gate.outputs.should_run == 'true'
+        id: run_codex
+        if: steps.gate.outputs.should_run == 'true' && inputs.provider == 'codex'
+        shell: bash
         env:
           PROMPT_FILE: ${{ steps.prompt.outputs.path }}
           REPO: ${{ matrix.repo }}
@@ -365,7 +377,6 @@ jobs:
           unset OPENAI_API_KEY OPENAI_ORG_ID OPENAI_PROJECT_ID
           export CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 
-          # ISO 8601 compact: 파일명에 `:` 를 못 쓰므로 `-` 로 대체.
           TS=$(date -u +%Y-%m-%dT%H-%M-%SZ)
           OUT_DIR="reports/${REPO}"
           OUT_FILE="${OUT_DIR}/${TS}.md"
@@ -379,46 +390,28 @@ jobs:
               --sandbox read-only \
               --output-last-message "$TMP" \
               - < "$PROMPT_FILE" > "$CODEX_STDOUT"; then
-            if [[ ! -s "$TMP" && -s "$CODEX_STDOUT" ]]; then
-              cp "$CODEX_STDOUT" "$TMP"
-            fi
+            if [[ ! -s "$TMP" && -s "$CODEX_STDOUT" ]]; then cp "$CODEX_STDOUT" "$TMP"; fi
             if [[ ! -s "$TMP" ]]; then
               echo "::error::Codex output empty for $REPO"
               rm -f "$TMP" "$CODEX_STDOUT"
               echo "status=failed" >> "$GITHUB_OUTPUT"
               exit 1
             fi
-            # 스키마 + 보안 validator. 실패 시 파일을 reports/ 로 옮기지 않는다
-            # (깨진 리포트 커밋 방지 · 인젝션으로 조작된 risk_level 등 차단).
-            # validator 세부: scripts/validate-report.py
-            VALIDATE_ARGS=(
-              scripts/validate-report.py "$TMP"
-              --project "$REPO"
-              --strict
-              --new-report
-            )
+
+            VALIDATE_ARGS=(scripts/validate-report.py "$TMP" --project "$REPO" --strict --new-report)
             META="reports/${REPO}/.meta.json"
             REPORTS_DIR="reports/${REPO}"
             if [[ -d "$REPORTS_DIR" ]]; then
-              VALIDATE_ARGS+=(
-                --reports-dir "$REPORTS_DIR"
-                --enforce-backlog-ledger
-              )
+              VALIDATE_ARGS+=(--reports-dir "$REPORTS_DIR" --enforce-backlog-ledger)
             elif [[ -f "$META" ]]; then
               PREVIOUS_REPORT="$(jq -r '.last_report_file // ""' "$META")"
               if [[ -n "$PREVIOUS_REPORT" && -f "$PREVIOUS_REPORT" ]]; then
-                VALIDATE_ARGS+=(
-                  --previous-report "$PREVIOUS_REPORT"
-                  --enforce-backlog-carryover
-                )
+                VALIDATE_ARGS+=(--previous-report "$PREVIOUS_REPORT" --enforce-backlog-carryover)
               fi
             fi
 
             if ! python3 "${VALIDATE_ARGS[@]}"; then
-              echo "::error::validator rejected output for $REPO — discarding report"
-              echo "::group::rejected output (redacted first 40 lines, for debug)"
-              python3 -c 'import re, sys; text = open(sys.argv[1], encoding="utf-8", errors="replace").read(); patterns = [r"sk-ant-oat\w{10,}", r"sk-proj-[A-Za-z0-9_-]{10,}", r"sk-[A-Za-z0-9_-]{20,}", r"github_pat_\w{10,}", r"gh[pousr]_\w{10,}", r"""\"(access_token|refresh_token|id_token)\"\s*:\s*\"[^\"]+\""""]; [None for pat in patterns for _ in [0] if not (text := re.sub(pat, "[REDACTED_SECRET]", text))]; print("\n".join(text.splitlines()[:40]))' "$TMP" >&2 || true
-              echo "::endgroup::"
+              echo "::error::validator rejected output for $REPO"
               rm -f "$TMP" "$CODEX_STDOUT"
               echo "status=failed" >> "$GITHUB_OUTPUT"
               exit 1
@@ -431,18 +424,36 @@ jobs:
               echo "status=success"
             } >> "$GITHUB_OUTPUT"
           else
-            echo "::error::Codex call failed for $REPO (exit $?)"
+            echo "::error::Codex call failed for $REPO"
             rm -f "$TMP" "$CODEX_STDOUT"
             echo "status=failed" >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
-      # ---------------------------------------------------------------------
-      # meta.json 업데이트: Codex 호출 성공 이후에만. 실패 시 meta 는 그대로라
-      # 다음 cron 이 같은 범위로 재시도한다.
-      # ---------------------------------------------------------------------
+      # ── 공통: 두 경로 출력 통합 ──────────────────────────────────────────
+      - name: Merge run outputs
+        id: run
+        if: steps.gate.outputs.should_run == 'true'
+        shell: bash
+        env:
+          CLAUDE_STATUS:   ${{ steps.run_claude.outputs.status }}
+          CODEX_STATUS:    ${{ steps.run_codex.outputs.status }}
+          CLAUDE_OUT_FILE: ${{ steps.run_claude.outputs.out_file }}
+          CODEX_OUT_FILE:  ${{ steps.run_codex.outputs.out_file }}
+          CLAUDE_TS:       ${{ steps.run_claude.outputs.timestamp }}
+          CODEX_TS:        ${{ steps.run_codex.outputs.timestamp }}
+        run: |
+          set -euo pipefail
+          STATUS="${CLAUDE_STATUS:-${CODEX_STATUS:-skipped}}"
+          OUT_FILE="${CLAUDE_OUT_FILE:-${CODEX_OUT_FILE:-}}"
+          TS="${CLAUDE_TS:-${CODEX_TS:-}}"
+          echo "status=$STATUS"    >> "$GITHUB_OUTPUT"
+          echo "out_file=$OUT_FILE" >> "$GITHUB_OUTPUT"
+          echo "timestamp=$TS"     >> "$GITHUB_OUTPUT"
+
       - name: Update meta.json
         if: steps.run.outputs.status == 'success'
+        shell: bash
         env:
           GH_TOKEN:    ${{ secrets.REPO_PAT }}
           REPO:        ${{ matrix.repo }}
@@ -463,7 +474,6 @@ jobs:
           fi
           NEW_COUNT=$((PREV_COUNT + 1))
 
-          # clone facts (last_commit_at, contributors) — 없으면 빈 객체로.
           if [[ -n "${FACTS_FILE:-}" && -f "$FACTS_FILE" ]]; then
             FACTS_JSON=$(cat "$FACTS_FILE")
           else
@@ -484,33 +494,23 @@ jobs:
             --argjson n "$NEW_COUNT" \
             --argjson repo "$REPO_JSON" \
             --argjson facts "$FACTS_JSON" \
-            '$prev
-              + {
-                  last_sha: $sha,
-                  last_report_at: $at,
-                  last_report_file: $file,
-                  report_count: $n,
-                  recent_report_ats: (
-                    (($prev.recent_report_ats // []) + [$at])
-                    | unique
-                    | sort
-                    | if length > 200 then .[-200:] else . end
-                  )
-                }
-              + $repo
-              + $facts' \
+            '$prev + {
+                last_sha: $sha,
+                last_report_at: $at,
+                last_report_file: $file,
+                report_count: $n,
+                recent_report_ats: (
+                  (($prev.recent_report_ats // []) + [$at])
+                  | unique | sort
+                  | if length > 200 then .[-200:] else . end
+                )
+              } + $repo + $facts' \
             > "$META"
 
-          echo "[info] meta updated:"
-          cat "$META"
-
-      # ---------------------------------------------------------------------
-      # 커밋 & 푸시. 같은 branch 동시 push 경합 대비 rebase retry.
-      # Record push success so the summary job can dispatch one deploy.
-      # ---------------------------------------------------------------------
       - name: Commit and push reports
         id: push_reports
         if: steps.run.outputs.status == 'success'
+        shell: bash
         env:
           REPO:        ${{ matrix.repo }}
           CURRENT_SHA: ${{ steps.gate.outputs.current_sha }}
@@ -523,7 +523,6 @@ jobs:
           git add -A reports
 
           if git diff --staged --quiet; then
-            echo "[info] no changes staged (unexpected, but tolerable)" >&2
             echo "pushed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -532,59 +531,55 @@ jobs:
           MSG="chore(reports): update ${REPO} (${SHORT})"
           git commit -m "$MSG"
 
-          # 동시 cell 들이 같은 branch 로 푸시 중. 첫 시도 실패 시 한 번 rebase.
           for attempt in 1 2 3; do
             if git push origin "HEAD:${BRANCH}"; then
               echo "[info] pushed on attempt $attempt"
               break
             fi
-            echo "[warn] push attempt $attempt failed — fetch + rebase + retry" >&2
             git fetch origin "$BRANCH"
-            # 충돌은 이론상 없다 (각 cell 은 reports/<다른 repo>/ 만 건드림).
-            git rebase "origin/${BRANCH}" || {
-              echo "::error::rebase conflict on attempt $attempt — aborting"
-              git rebase --abort || true
-              exit 1
-            }
-            if [[ $attempt -eq 3 ]]; then
-              echo "::error::push failed 3x"
-              exit 1
-            fi
+            git rebase "origin/${BRANCH}" || { git rebase --abort || true; exit 1; }
+            [[ $attempt -eq 3 ]] && exit 1
           done
 
           echo "pushed=true" >> "$GITHUB_OUTPUT"
 
-      # ---------------------------------------------------------------------
-      # 이 cell 의 결과 요약을 artifact 로 뽑는다. summary 잡이 수집.
-      # always(): 게이트/Codex/푸시 어디서 실패하든 항상 무언가 남긴다.
-      # ---------------------------------------------------------------------
       - name: Write cell summary
         if: always()
+        shell: bash
         env:
-          REPO:         ${{ matrix.repo }}
-          SHOULD_RUN:   ${{ steps.gate.outputs.should_run }}
-          REASON:       ${{ steps.gate.outputs.reason }}
-          FIRST_REPORT: ${{ steps.gate.outputs.first_report }}
-          COMMIT_COUNT: ${{ steps.gate.outputs.commit_count }}
-          CURRENT_SHA:  ${{ steps.gate.outputs.current_sha }}
-          RUN_STATUS:   ${{ steps.run.outputs.status }}
-          OUT_FILE:     ${{ steps.run.outputs.out_file }}
-          REPORTS_PUSHED: ${{ steps.push_reports.outputs.pushed }}
+          REPO:             ${{ matrix.repo }}
+          SHOULD_RUN:       ${{ steps.gate.outputs.should_run }}
+          REASON:           ${{ steps.gate.outputs.reason }}
+          FIRST_REPORT:     ${{ steps.gate.outputs.first_report }}
+          COMMIT_COUNT:     ${{ steps.gate.outputs.commit_count }}
+          CURRENT_SHA:      ${{ steps.gate.outputs.current_sha }}
+          RUN_STATUS:       ${{ steps.run.outputs.status }}
+          OUT_FILE:         ${{ steps.run.outputs.out_file }}
+          REPORTS_PUSHED:   ${{ steps.push_reports.outputs.pushed }}
           RECONCILE_PUSHED: ${{ steps.push_reconcile.outputs.pushed }}
-          SUMMARY_DIR:  ${{ runner.temp }}/summary
+          SUMMARY_DIR:      ${{ runner.temp }}/summary
         run: |
           set -euo pipefail
-          if command -v cygpath >/dev/null 2>&1; then
-            SUMMARY_DIR_BASH="$(cygpath -u "$SUMMARY_DIR")"
-          else
-            SUMMARY_DIR_BASH="$SUMMARY_DIR"
-          fi
-          mkdir -p "$SUMMARY_DIR_BASH"
-          # matrix.repo 에 `/` 가 들어올 수 있다는 가정 (현재는 없지만 방어적).
+          mkdir -p "$SUMMARY_DIR"
           SAFE="${REPO//\//__}"
-          SUMMARY_FILE="${SUMMARY_DIR_BASH}/${SAFE}.json"
+          SUMMARY_FILE="${SUMMARY_DIR}/${SAFE}.json"
           export SUMMARY_FILE
-          python3 -c 'import json, os; data = {"repo": os.environ.get("REPO", ""), "should_run": os.environ.get("SHOULD_RUN") or "unknown", "reason": os.environ.get("REASON") or "gate step failed before emit", "first_report": os.environ.get("FIRST_REPORT", ""), "commit_count": os.environ.get("COMMIT_COUNT") or "0", "current_sha": os.environ.get("CURRENT_SHA", ""), "run_status": os.environ.get("RUN_STATUS") or "skipped", "out_file": os.environ.get("OUT_FILE", ""), "reports_pushed": os.environ.get("REPORTS_PUSHED") or "false", "reconcile_pushed": os.environ.get("RECONCILE_PUSHED") or "false"}; open(os.environ["SUMMARY_FILE"], "w", encoding="utf-8").write(json.dumps(data, ensure_ascii=False) + "\n")'
+          python3 -c '
+import json, os
+data = {
+  "repo": os.environ.get("REPO", ""),
+  "should_run": os.environ.get("SHOULD_RUN") or "unknown",
+  "reason": os.environ.get("REASON") or "gate step failed before emit",
+  "first_report": os.environ.get("FIRST_REPORT", ""),
+  "commit_count": os.environ.get("COMMIT_COUNT") or "0",
+  "current_sha": os.environ.get("CURRENT_SHA", ""),
+  "run_status": os.environ.get("RUN_STATUS") or "skipped",
+  "out_file": os.environ.get("OUT_FILE", ""),
+  "reports_pushed": os.environ.get("REPORTS_PUSHED") or "false",
+  "reconcile_pushed": os.environ.get("RECONCILE_PUSHED") or "false",
+}
+open(os.environ["SUMMARY_FILE"], "w", encoding="utf-8").write(json.dumps(data, ensure_ascii=False) + "\n")
+'
 
       - name: Upload cell summary
         if: always()
@@ -596,7 +591,7 @@ jobs:
           retention-days: 7
 
   # ===========================================================================
-  # summary — 전 cell 결과 수집 → Actions summary 에 테이블.
+  # summary
   # ===========================================================================
   summary:
     needs: review
@@ -618,21 +613,19 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-
           FILES=(/tmp/summary/*.json)
           {
             echo "# 리뷰 생성 결과"
             echo ""
             echo "- **trigger:** \`${{ github.event_name }}\`"
+            echo "- **provider:** \`${{ inputs.provider }}\`"
             echo "- **run:** [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
             echo "- **cells:** ${#FILES[@]}"
             echo ""
-
             if (( ${#FILES[@]} == 0 )); then
-              echo "_no cell summaries collected (discover found 0 repos, or upload failed)_"
+              echo "_no cell summaries collected_"
               exit 0
             fi
-
             echo "| Repo | should_run | status | reason | commits | report |"
             echo "|---|---|---|---|---|---|"
             for f in "${FILES[@]}"; do
@@ -642,11 +635,7 @@ jobs:
               rn=$(jq -r .reason "$f" | sed 's/|/\\|/g')
               cc=$(jq -r .commit_count "$f")
               of=$(jq -r .out_file "$f")
-              if [[ -n "$of" && "$of" != "null" ]]; then
-                rep_cell="\`${of#reports/}\`"
-              else
-                rep_cell="—"
-              fi
+              rep_cell=$([[ -n "$of" && "$of" != "null" ]] && echo "\`${of#reports/}\`" || echo "—")
               echo "| \`$repo\` | $sr | $st | $rn | $cc | $rep_cell |"
             done
           } >> "$GITHUB_STEP_SUMMARY"
@@ -658,22 +647,17 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-
           FILES=(/tmp/summary/*.json)
           SHOULD_DEPLOY=false
-
           for f in "${FILES[@]}"; do
             if jq -e '(.reports_pushed == "true") or (.reconcile_pushed == "true")' "$f" >/dev/null; then
-              SHOULD_DEPLOY=true
-              break
+              SHOULD_DEPLOY=true; break
             fi
           done
-
           if [[ "$SHOULD_DEPLOY" != "true" ]]; then
             echo "[info] no pushed report changes; skipping Pages deploy dispatch" >&2
             exit 0
           fi
-
           gh api "repos/${REPOSITORY}/dispatches" \
             --method POST \
             -f event_type=reports_changed \
