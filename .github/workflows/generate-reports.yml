@@ -144,6 +144,12 @@ jobs:
             Add-Content -Path $env:GITHUB_PATH -Value $gitBash
           }
 
+          # Codex auth: NullMa 사용자 홈 고정 (runner가 SYSTEM으로 실행될 경우 대비)
+          $codexHome = "C:\Users\NullMa\.codex"
+          if (Test-Path $codexHome) {
+            Add-Content -Path $env:GITHUB_ENV -Value "CODEX_HOME=$codexHome"
+          }
+
           $npmPrefix = (npm config get prefix).Trim()
           Add-Content -Path $env:GITHUB_PATH -Value $npmPrefix
           $codexCmd = (Join-Path $npmPrefix "codex.cmd") -replace "\\", "/"
