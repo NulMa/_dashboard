@@ -31,6 +31,61 @@ export interface ProjectMeta {
 // 은 case 보존. 리눅스 CI 는 case-sensitive 라 소문자 그대로 path 조회 시 404.
 // 한 번 스캔 후 lowercase → 실제 디렉토리명 map 으로 lookup.
 let metaCache: Map<string, ProjectMeta> | null = null;
+let projectAllowlistCache: Set<string> | null | undefined;
+
+function normalizeProjectKey(project: string): string {
+  return project.trim().toLowerCase();
+}
+
+function parseProjectList(raw: string): Set<string> | null {
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed === "*" || trimmed.toLowerCase() === "all") {
+    return null;
+  }
+
+  const projects = trimmed
+    .split(/[,\s]+/)
+    .map(normalizeProjectKey)
+    .filter(Boolean);
+
+  return projects.length > 0 ? new Set(projects) : null;
+}
+
+async function loadProjectAllowlist(): Promise<Set<string> | null> {
+  if (projectAllowlistCache !== undefined) return projectAllowlistCache;
+
+  const envList = import.meta.env.DASHBOARD_PROJECTS ?? "";
+  const fromEnv = parseProjectList(envList);
+  if (envList.trim()) {
+    projectAllowlistCache = fromEnv;
+    return projectAllowlistCache;
+  }
+
+  try {
+    const raw = await readFile(path.resolve(process.cwd(), "db/projects.json"), "utf-8");
+    const projects = JSON.parse(raw) as Array<{ name?: string; enabled?: boolean }>;
+    const enabled = projects
+      .filter((p) => p.enabled === true && p.name)
+      .map((p) => normalizeProjectKey(p.name!));
+
+    projectAllowlistCache = enabled.length > 0 ? new Set(enabled) : null;
+  } catch {
+    projectAllowlistCache = null;
+  }
+
+  return projectAllowlistCache;
+}
+
+async function filterAllowedReports(reports: ReportInfo[]): Promise<ReportInfo[]> {
+  const allowlist = await loadProjectAllowlist();
+  if (!allowlist) return reports;
+
+  return reports.filter(
+    (r) =>
+      allowlist.has(normalizeProjectKey(r.project)) ||
+      allowlist.has(normalizeProjectKey(r.entry.data.project)),
+  );
+}
 
 async function loadMetaCache(): Promise<Map<string, ProjectMeta>> {
   if (metaCache) return metaCache;
@@ -80,7 +135,9 @@ function splitId(id: string): { project: string; slug: string } {
 
 export async function getAllReports(): Promise<ReportInfo[]> {
   const entries = await getCollection("reports");
-  return entries.map((entry) => ({ entry, ...splitId(entry.id) }));
+  return filterAllowedReports(
+    entries.map((entry) => ({ entry, ...splitId(entry.id) })),
+  );
 }
 
 export function sortByDateDesc(reports: ReportInfo[]): ReportInfo[] {

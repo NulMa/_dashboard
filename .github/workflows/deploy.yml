@@ -40,6 +40,7 @@ jobs:
         run: npm run build
         env:
           NODE_ENV: production
+          DASHBOARD_PROJECTS: ${{ vars.DASHBOARD_PROJECTS || 'Ghost_March,GhostMarch_2,GhostMarch_DOTS' }}
           PUBLIC_CHAT_SUPABASE_URL: ${{ vars.CHAT_SUPABASE_URL }}
           PUBLIC_CHAT_SUPABASE_ANON_KEY: ${{ vars.CHAT_SUPABASE_ANON_KEY }}
 
