@@ -1,3 +1,10 @@
 [
-  { "name": "Ghost_March", "enabled": true }
+  {
+    "name": "Ghost_March",
+    "enabled": true
+  },
+  {
+    "name": "Match3LogueLike",
+    "enabled": true
+  }
 ]
