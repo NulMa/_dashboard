@@ -54,13 +54,6 @@ function parseProjectList(raw: string): Set<string> | null {
 async function loadProjectAllowlist(): Promise<Set<string> | null> {
   if (projectAllowlistCache !== undefined) return projectAllowlistCache;
 
-  const envList = import.meta.env.DASHBOARD_PROJECTS ?? "";
-  const fromEnv = parseProjectList(envList);
-  if (envList.trim()) {
-    projectAllowlistCache = fromEnv;
-    return projectAllowlistCache;
-  }
-
   try {
     const raw = await readFile(path.resolve(process.cwd(), "db/projects.json"), "utf-8");
     const projects = JSON.parse(raw) as Array<{ name?: string; enabled?: boolean }>;
@@ -68,11 +61,16 @@ async function loadProjectAllowlist(): Promise<Set<string> | null> {
       .filter((p) => p.enabled === true && p.name)
       .map((p) => normalizeProjectKey(p.name!));
 
-    projectAllowlistCache = enabled.length > 0 ? new Set(enabled) : null;
+    if (enabled.length > 0) {
+      projectAllowlistCache = new Set(enabled);
+      return projectAllowlistCache;
+    }
   } catch {
-    projectAllowlistCache = null;
+    // Fall back to env below for older deployments or ad-hoc local filtering.
   }
 
+  const envList = import.meta.env.DASHBOARD_PROJECTS ?? "";
+  projectAllowlistCache = parseProjectList(envList);
   return projectAllowlistCache;
 }
 
