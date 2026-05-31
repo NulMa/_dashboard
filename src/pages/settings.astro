@@ -133,11 +133,14 @@ const CODEX_MODELS = [
         ))}
       </ul>
 
-      <div style="display:flex;gap:8px;margin-bottom:12px;">
-        <input id="add-name" type="text" placeholder="repo 이름 추가 (예: my-project)"
-          style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg-1);font-family:var(--mono);font-size:12px;outline:none;" />
-        <button id="add-project" class="btn-secondary">추가</button>
+      <div class="repo-picker">
+        <select id="repo-select" class="sel" disabled>
+          <option value="">GitHub repo 목록을 불러오세요</option>
+        </select>
+        <button id="repo-refresh" class="btn-ghost" type="button">새로고침</button>
+        <button id="add-project" class="btn-secondary" type="button">추가</button>
       </div>
+      <p id="repo-status" style="margin:0 0 12px;font-size:11px;color:var(--fg-3);font-family:var(--mono);"></p>
 
       <div style="display:flex;justify-content:flex-end;">
         <button id="save-btn" class="btn-primary">저장 &amp; 재배포</button>
@@ -212,6 +215,12 @@ const CODEX_MODELS = [
     border-radius: 4px;
     background: var(--bg);
   }
+  .repo-picker {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
   .btn-primary {
     padding: 7px 16px;
     border: 1px solid var(--accent);
@@ -248,12 +257,18 @@ const CODEX_MODELS = [
   }
   [data-theme="dark"] .conn-badge.ok    { color: #4ade80; background: #052e16; }
   [data-theme="dark"] .conn-badge.error { color: #f87171; background: #2d1515; }
+  @media (max-width: 560px) {
+    .repo-picker {
+      grid-template-columns: 1fr;
+    }
+  }
 </style>
 
 <script define:vars={{ DASHBOARD_REPO, CLAUDE_MODELS, CODEX_MODELS, initialProjects }}>
   const PAT_KEY      = "__dashboard_pat__";
   const PROVIDER_KEY = "__dashboard_provider__";
   const MODEL_KEY    = "__dashboard_model__";
+  const DASHBOARD_OWNER = DASHBOARD_REPO.split("/")[0];
 
   const pat$ = () => localStorage.getItem(PAT_KEY) || "";
 
@@ -277,11 +292,13 @@ const CODEX_MODELS = [
     document.getElementById("pat-input").value = "";
     refreshPatStatus();
     checkConnections();
+    loadRepos();
   });
   document.getElementById("pat-clear").addEventListener("click", () => {
     localStorage.removeItem(PAT_KEY);
     document.getElementById("pat-input").value = "";
     refreshPatStatus();
+    resetRepoSelect("GitHub token required");
   });
   refreshPatStatus();
 
@@ -412,40 +429,198 @@ const CODEX_MODELS = [
     }
   });
 
-  // ── 프로젝트 토글 ──────────────────────────────────────────────────
-  document.querySelectorAll(".project-toggle").forEach((cb) => {
-    cb.addEventListener("change", () => {
-      cb.parentElement.querySelector("span").textContent = cb.checked ? "활성" : "비활성";
+  // ── 프로젝트 토글 / GitHub repo picker ─────────────────────────────
+  const repoSelect = document.getElementById("repo-select");
+  const repoStatus = document.getElementById("repo-status");
+
+  function trackedProjectNames() {
+    return new Set(
+      [...document.querySelectorAll("li[data-project]")]
+        .map((li) => li.dataset.project)
+        .filter(Boolean)
+    );
+  }
+
+  function resetRepoSelect(message) {
+    repoSelect.innerHTML = "";
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = message;
+    repoSelect.appendChild(option);
+    repoSelect.disabled = true;
+    repoStatus.textContent = "";
+  }
+
+  function setRepoStatus(message, isError = false) {
+    repoStatus.textContent = message;
+    repoStatus.style.color = isError ? "var(--risk-high)" : "var(--fg-3)";
+  }
+
+  function addToggleListener(toggle) {
+    toggle.addEventListener("change", () => {
+      toggle.parentElement.querySelector("span").textContent = toggle.checked ? "활성" : "비활성";
     });
-  });
-  document.getElementById("project-list").addEventListener("click", (e) => {
-    const btn = e.target.closest(".remove-project");
-    if (btn) btn.closest("li[data-project]")?.remove();
-  });
-  document.getElementById("add-project").addEventListener("click", () => {
-    const input = document.getElementById("add-name");
-    const name = input.value.trim();
-    if (!name || document.querySelector(`li[data-project="${name}"]`)) { input.value = ""; return; }
+  }
+
+  function upsertRunRepoOption(name) {
+    const runSelect = document.getElementById("sel-repo");
+    if (!runSelect || [...runSelect.options].some((option) => option.value === name)) return;
+
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = name;
+    const allOption = [...runSelect.options].find((item) => item.value === "");
+    runSelect.insertBefore(option, allOption || null);
+  }
+
+  function removeRunRepoOption(name) {
+    const runSelect = document.getElementById("sel-repo");
+    const option = runSelect && [...runSelect.options].find((item) => item.value === name);
+    option?.remove();
+  }
+
+  function addProjectRow(name) {
+    if (!name || trackedProjectNames().has(name)) return false;
+
     const li = document.createElement("li");
     li.dataset.project = name;
     li.className = "project-row";
-    li.innerHTML = `
-      <span style="font-family:var(--mono);font-size:13px;color:var(--fg-1);">${name}</span>
-      <div style="display:flex;align-items:center;gap:10px;">
-        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;">
-          <input type="checkbox" class="project-toggle" data-name="${name}" checked
-            style="width:14px;height:14px;cursor:pointer;accent-color:var(--accent);" />
-          <span style="font-size:11px;font-family:var(--mono);color:var(--fg-3);">활성</span>
-        </label>
-        <button type="button" class="remove-project" data-name="${name}"
-          style="padding:2px 6px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--fg-3);font-size:11px;cursor:pointer;">✕</button>
-      </div>`;
-    li.querySelector(".project-toggle").addEventListener("change", function () {
-      this.parentElement.querySelector("span").textContent = this.checked ? "활성" : "비활성";
-    });
+
+    const title = document.createElement("span");
+    title.textContent = name;
+    title.style.cssText = "font-family:var(--mono);font-size:13px;color:var(--fg-1);";
+
+    const controls = document.createElement("div");
+    controls.style.cssText = "display:flex;align-items:center;gap:10px;";
+
+    const label = document.createElement("label");
+    label.style.cssText = "display:flex;align-items:center;gap:5px;cursor:pointer;";
+
+    const toggle = document.createElement("input");
+    toggle.type = "checkbox";
+    toggle.className = "project-toggle";
+    toggle.dataset.name = name;
+    toggle.checked = true;
+    toggle.style.cssText = "width:14px;height:14px;cursor:pointer;accent-color:var(--accent);";
+
+    const state = document.createElement("span");
+    state.textContent = "활성";
+    state.style.cssText = "font-size:11px;font-family:var(--mono);color:var(--fg-3);";
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "remove-project";
+    remove.dataset.name = name;
+    remove.textContent = "✕";
+    remove.style.cssText = "padding:2px 6px;border:1px solid var(--border);border-radius:3px;background:var(--bg);color:var(--fg-3);font-size:11px;cursor:pointer;";
+
+    label.append(toggle, state);
+    controls.append(label, remove);
+    li.append(title, controls);
+    addToggleListener(toggle);
+
     document.getElementById("project-list").appendChild(li);
-    input.value = "";
+    upsertRunRepoOption(name);
+    return true;
+  }
+
+  async function loadRepos() {
+    const pat = pat$();
+    if (!pat) {
+      resetRepoSelect("GitHub token required");
+      setRepoStatus("PAT 저장 후 repo 목록을 불러올 수 있습니다.", true);
+      return;
+    }
+
+    repoSelect.disabled = true;
+    resetRepoSelect("Loading repositories...");
+    setRepoStatus(`${DASHBOARD_OWNER} repo 목록을 불러오는 중...`);
+
+    try {
+      const headers = {
+        Authorization: `Bearer ${pat}`,
+        Accept: "application/vnd.github+json",
+      };
+      const repos = [];
+
+      for (let page = 1; page <= 10; page += 1) {
+        const url = new URL("https://api.github.com/user/repos");
+        url.searchParams.set("affiliation", "owner,collaborator,organization_member");
+        url.searchParams.set("sort", "updated");
+        url.searchParams.set("direction", "desc");
+        url.searchParams.set("per_page", "100");
+        url.searchParams.set("page", String(page));
+
+        const res = await fetch(url, { headers });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(`${res.status} ${err.message || "failed to load repos"}`);
+        }
+
+        const pageItems = await res.json();
+        repos.push(...pageItems);
+        if (pageItems.length < 100) break;
+      }
+
+      const tracked = trackedProjectNames();
+      const candidates = repos
+        .filter((repo) => repo?.owner?.login?.toLowerCase() === DASHBOARD_OWNER.toLowerCase())
+        .filter((repo) => !repo.archived)
+        .filter((repo) => repo.name !== DASHBOARD_REPO.split("/")[1])
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      repoSelect.innerHTML = "";
+
+      const available = candidates.filter((repo) => !tracked.has(repo.name));
+      if (available.length === 0) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = candidates.length === 0 ? "추가 가능한 repo 없음" : "모든 repo가 이미 추가됨";
+        repoSelect.appendChild(option);
+        repoSelect.disabled = true;
+      } else {
+        for (const repo of available) {
+          const option = document.createElement("option");
+          option.value = repo.name;
+          option.textContent = `${repo.name}${repo.private ? " (private)" : ""}`;
+          repoSelect.appendChild(option);
+        }
+        repoSelect.disabled = false;
+      }
+
+      setRepoStatus(`${candidates.length}개 repo 확인, ${available.length}개 추가 가능`);
+    } catch (err) {
+      resetRepoSelect("Repo list unavailable");
+      setRepoStatus(err.message, true);
+    }
+  }
+
+  document.querySelectorAll(".project-toggle").forEach((cb) => {
+    addToggleListener(cb);
   });
+  document.getElementById("project-list").addEventListener("click", (e) => {
+    const btn = e.target.closest(".remove-project");
+    if (!btn) return;
+
+    const row = btn.closest("li[data-project]");
+    const name = row?.dataset.project;
+    row?.remove();
+    if (name) removeRunRepoOption(name);
+    loadRepos();
+  });
+  document.getElementById("repo-refresh").addEventListener("click", loadRepos);
+  document.getElementById("add-project").addEventListener("click", () => {
+    const name = repoSelect.value;
+    if (!name) return;
+
+    if (addProjectRow(name)) {
+      setRepoStatus(`${name} 추가됨. 저장하면 db/projects.json에 반영됩니다.`);
+      loadRepos();
+    } else {
+      setRepoStatus(`${name}는 이미 추가되어 있습니다.`, true);
+    }
+  });
+  loadRepos();
 
   // ── 프로젝트 저장 & 배포 ──────────────────────────────────────────
   document.getElementById("save-btn").addEventListener("click", async () => {
