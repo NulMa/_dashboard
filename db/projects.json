@@ -6,5 +6,9 @@
   {
     "name": "Match3LogueLike",
     "enabled": true
+  },
+  {
+    "name": "Cubika",
+    "enabled": true
   }
 ]
